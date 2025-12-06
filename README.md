@@ -21,18 +21,40 @@ If you want to run the analysis yourself, follow the steps below.
 
 ## Running the Analysis
 
-### 1. Install Dependencies
+### 1. Set Up Virtual Environment
+
 ```bash
-pip install pandas mysql-connector-python python-dotenv jupyter
+# Create virtual environment
+python -m venv venv
+
+# Activate it
+# On Linux/macOS:
+source venv/bin/activate
+
+# On Windows:
+venv\Scripts\activate
+```
+
+### 2. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+Or install manually:
+
+```bash
+pip install pandas sqlalchemy mysql-connector-python python-dotenv jupyter
 ```
 
 Optional (for extra features):
+
 ```bash
 pip install scikit-learn ydata-profiling
 pip install psycopg2-binary  # for PostgreSQL support
 ```
 
-### 2. Choose a Database
+### 3. Choose a Database
 
 Run the main script to select which database to analyze:
 ```bash
@@ -98,7 +120,7 @@ Found 12 tables:
 
 The script tests the connection before saving, so you'll know immediately if there's an issue.
 
-### 3. Run the Notebook
+### 4. Run the Notebook
 ```bash
 jupyter notebook database_relationship_analysis.ipynb
 ```
