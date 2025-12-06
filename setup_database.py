@@ -2,6 +2,7 @@ import os
 import json
 import pandas as pd
 import sqlite3
+from sqlalchemy import create_engine
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -23,10 +24,10 @@ def load_config():
 
 def connect_database(config=None):
     """
-    Establish database connection based on config.
+    Establish database connection using SQLAlchemy.
     
     Returns:
-        tuple: (connection, is_remote, db_type, config)
+        tuple: (engine, is_remote, db_type, config)
     """
     if config is None:
         config = load_config()
@@ -37,76 +38,88 @@ def connect_database(config=None):
         path = config['sqlite_path']
         if not os.path.exists(path):
             raise FileNotFoundError(f"SQLite database not found: {path}")
-        conn = sqlite3.connect(path)
+        engine = create_engine(f"sqlite:///{path}")
         print(f"Connected to SQLite: {path}")
         print(f"File size: {os.path.getsize(path) / (1024*1024):.1f} MB")
-        return conn, False, db_type, config
+        return engine, False, db_type, config
     
     elif db_type == 'mysql':
-        import mysql.connector
-        conn = mysql.connector.connect(
-            host=config['mysql_host'],
-            port=config['mysql_port'],
-            user=config['mysql_user'],
-            password=config['mysql_password'],
-            database=config['mysql_database']
-        )
-        print(f"Connected to MySQL: {config['mysql_host']}/{config['mysql_database']}")
+        host = config['mysql_host']
+        port = config['mysql_port']
+        user = config['mysql_user']
+        password = config['mysql_password']
+        database = config['mysql_database']
+        
+        url = f"mysql+mysqlconnector://{user}:{password}@{host}:{port}/{database}"
+        engine = create_engine(url)
+        
+        # Test connection
+        with engine.connect() as conn:
+            pass
+        
+        print(f"Connected to MySQL: {host}/{database}")
         print("Note: Remote database - using optimized queries to minimize latency")
-        return conn, True, db_type, config
+        return engine, True, db_type, config
     
     elif db_type == 'postgres':
-        import psycopg2
-        conn = psycopg2.connect(
-            host=config['postgres_host'],
-            port=config['postgres_port'],
-            user=config['postgres_user'],
-            password=config['postgres_password'],
-            database=config['postgres_database']
-        )
-        print(f"Connected to PostgreSQL: {config['postgres_host']}/{config['postgres_database']}")
+        host = config['postgres_host']
+        port = config['postgres_port']
+        user = config['postgres_user']
+        password = config['postgres_password']
+        database = config['postgres_database']
+        
+        url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
+        engine = create_engine(url)
+        
+        # Test connection
+        with engine.connect() as conn:
+            pass
+        
+        print(f"Connected to PostgreSQL: {host}/{database}")
         print(f"Schema: {config.get('postgres_schema', 'public')}")
         print("Note: Remote database - using optimized queries to minimize latency")
-        return conn, True, db_type, config
+        return engine, True, db_type, config
     
     else:
         raise ValueError(f"Unsupported database type: {db_type}")
 
 
-def get_table_names(conn, db_type, config):
+def get_table_names(engine, db_type, config):
     """Get list of table names from database."""
-    if db_type == 'sqlite':
-        df = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)
-        return df['name'].tolist()
-    elif db_type == 'postgres':
-        schema = config.get('postgres_schema', 'public')
-        df = pd.read_sql(f"""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = '{schema}'
-        """, conn)
-        return df['table_name'].tolist()
-    else:  # mysql
-        df = pd.read_sql("SHOW TABLES", conn)
-        return df.iloc[:, 0].tolist()
+    with engine.connect() as conn:
+        if db_type == 'sqlite':
+            df = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table'", conn)
+            return df['name'].tolist()
+        elif db_type == 'postgres':
+            schema = config.get('postgres_schema', 'public')
+            df = pd.read_sql(f"""
+                SELECT table_name 
+                FROM information_schema.tables 
+                WHERE table_schema = '{schema}'
+            """, conn)
+            return df['table_name'].tolist()
+        else:  # mysql
+            df = pd.read_sql("SHOW TABLES", conn)
+            return df.iloc[:, 0].tolist()
 
 
-def get_column_info(conn, db_type, config, table_name):
+def get_column_info(engine, db_type, config, table_name):
     """Get column names and types for a table."""
-    if db_type == 'sqlite':
-        df = pd.read_sql(f"PRAGMA table_info({table_name})", conn)
-        return list(zip(df['name'], df['type']))
-    elif db_type == 'postgres':
-        schema = config.get('postgres_schema', 'public')
-        df = pd.read_sql(f"""
-            SELECT column_name, data_type 
-            FROM information_schema.columns 
-            WHERE table_schema = '{schema}' AND table_name = '{table_name}'
-        """, conn)
-        return list(zip(df['column_name'], df['data_type']))
-    else:  # mysql
-        df = pd.read_sql(f"SHOW COLUMNS FROM {table_name}", conn)
-        return list(zip(df['Field'], df['Type']))
+    with engine.connect() as conn:
+        if db_type == 'sqlite':
+            df = pd.read_sql(f"PRAGMA table_info({table_name})", conn)
+            return list(zip(df['name'], df['type']))
+        elif db_type == 'postgres':
+            schema = config.get('postgres_schema', 'public')
+            df = pd.read_sql(f"""
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_schema = '{schema}' AND table_name = '{table_name}'
+            """, conn)
+            return list(zip(df['column_name'], df['data_type']))
+        else:  # mysql
+            df = pd.read_sql(f"SHOW COLUMNS FROM {table_name}", conn)
+            return list(zip(df['Field'], df['Type']))
 
 
 def quote_identifier(name, db_type, config=None):
